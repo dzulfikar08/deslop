@@ -53,29 +53,36 @@ jobs:
 
       # Problem counts pinned to the .golden/check-* expectations the linux
       # test-suite enforces, so this is a cross-OS equivalence check.
+      # No cmd | grep -q pipelines here: under `bash -e -o pipefail` grep -q can
+      # exit before the writer drains, SIGPIPE-ing it (msys2 pipes are narrow),
+      # which fails the step even when the pattern matches. Assert on files.
       - name: Functional - fixtures and exit codes
         shell: bash
         run: |
           set +e
-          CYCLES_OUT=$(./dist/win32-x64/deslop.exe check test/fixtures/ts-cycles-project)
+          ./dist/win32-x64/deslop.exe check test/fixtures/ts-cycles-project > cycles.out 2>&1
           CYCLES=$?
-          PROJ_OUT=$(./dist/win32-x64/deslop.exe check test/fixtures/ts-project-1)
+          ./dist/win32-x64/deslop.exe check test/fixtures/ts-project-1 > project.out 2>&1
           PROJ=$?
           set -e
-          echo "$CYCLES_OUT"
-          echo "$PROJ_OUT"
+          cat cycles.out
+          cat project.out
           echo "cycles exit: $CYCLES (want 1), project-1 exit: $PROJ (want 1)"
-          echo "$CYCLES_OUT" | grep -q "Found 1 problem"
-          echo "$PROJ_OUT" | grep -q "Found 32 problems"
+          grep -q "Found 1 problem" cycles.out
+          grep -q "Found 32 problems" project.out
           [ "$CYCLES" -eq 1 ] && [ "$PROJ" -eq 1 ]
 
+      # deslop exits 1 on this fixture, so each invocation needs `|| true` to
+      # survive `set -e -o pipefail`; the comparison below is the actual gate.
       - name: Functional - CRLF sources parse identically
         shell: bash
         run: |
           cp -r test/fixtures/ts-cycles-project test/fixtures/crlf-check
           find test/fixtures/crlf-check -type f \( -name '*.ts' -o -name '*.json' \) -exec sed -i 's/$/\r/' {} +
-          ./dist/win32-x64/deslop.exe check test/fixtures/ts-cycles-project | sed 's|ts-cycles-project|FIXTURE|' > lf.out
-          ./dist/win32-x64/deslop.exe check test/fixtures/crlf-check      | sed 's|crlf-check|FIXTURE|' > crlf.out
+          ./dist/win32-x64/deslop.exe check test/fixtures/ts-cycles-project > lf.raw 2>&1 || true
+          ./dist/win32-x64/deslop.exe check test/fixtures/crlf-check      > crlf.raw 2>&1 || true
+          sed 's|ts-cycles-project|FIXTURE|g' lf.raw > lf.out
+          sed 's|crlf-check|FIXTURE|g' crlf.raw > crlf.out
           diff lf.out crlf.out && echo "CRLF output identical"
 
       - uses: actions/upload-artifact@v7
