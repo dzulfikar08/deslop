@@ -1,0 +1,78 @@
+# Temporary QA harness for the win32-x64 support PR (#209). Lives on the fork,
+# not the PR branch: workflow_dispatch only fires for workflows that also exist
+# on the default branch, and running it here keeps the PR diff clean.
+name: Windows QA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa:
+    name: Build and exercise deslop.exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: "9.10.3"
+          cabal-version: "3.16.0.0"
+
+      - name: Cache cabal store
+        uses: actions/cache@v6
+        with:
+          # haskell-actions/setup rewrites store-dir to C:\sr on Windows
+          path: C:\sr
+          key: cabal-win32-x64-qa-${{ hashFiles('cabal.project.freeze') }}
+          restore-keys: cabal-win32-x64-qa-
+
+      - run: cabal update
+        shell: bash
+
+      - name: Build
+        shell: bash
+        run: cabal build exe:deslop --ghc-options="-O2 -threaded -rtsopts -with-rtsopts=-N"
+
+      - name: Collect, strip, version
+        shell: bash
+        run: |
+          mkdir -p dist/win32-x64
+          cp "$(cabal list-bin exe:deslop)" dist/win32-x64/deslop.exe
+          strip --strip-unneeded dist/win32-x64/deslop.exe
+          ./dist/win32-x64/deslop.exe --version
+
+      # Informational, not a gate: evidence for the "is the exe self-contained"
+      # question. Expect only system DLLs (KERNEL32, ntdll, msvcrt...); any
+      # libgcc / libwinpthread / gcc_s entry means the binary is not portable.
+      - name: DLL audit
+        shell: bash
+        run: objdump -p dist/win32-x64/deslop.exe | grep "DLL Name" || echo "objdump unavailable"
+
+      - name: Functional - fixtures and exit codes
+        shell: bash
+        run: |
+          set +e
+          ./dist/win32-x64/deslop.exe check test/fixtures/ts-cycles-project
+          CYCLES=$?
+          ./dist/win32-x64/deslop.exe check test/fixtures/ts-project-1
+          CLEAN=$?
+          set -e
+          echo "violating fixture exit: $CYCLES (want 1), clean fixture exit: $CLEAN (want 0)"
+          [ "$CYCLES" -eq 1 ] && [ "$CLEAN" -eq 0 ]
+
+      - name: Functional - CRLF sources parse identically
+        shell: bash
+        run: |
+          cp -r test/fixtures/ts-cycles-project test/fixtures/crlf-check
+          find test/fixtures/crlf-check -type f \( -name '*.ts' -o -name '*.json' \) -exec sed -i 's/$/\r/' {} +
+          ./dist/win32-x64/deslop.exe check test/fixtures/ts-cycles-project | sed 's|ts-cycles-project|FIXTURE|' > lf.out
+          ./dist/win32-x64/deslop.exe check test/fixtures/crlf-check      | sed 's|crlf-check|FIXTURE|' > crlf.out
+          diff lf.out crlf.out && echo "CRLF output identical"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deslop-win32-x64-qa
+          path: dist/win32-x64
