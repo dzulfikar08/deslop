@@ -51,17 +51,23 @@ jobs:
         shell: bash
         run: objdump -p dist/win32-x64/deslop.exe | grep "DLL Name" || echo "objdump unavailable"
 
+      # Problem counts pinned to the .golden/check-* expectations the linux
+      # test-suite enforces, so this is a cross-OS equivalence check.
       - name: Functional - fixtures and exit codes
         shell: bash
         run: |
           set +e
-          ./dist/win32-x64/deslop.exe check test/fixtures/ts-cycles-project
+          CYCLES_OUT=$(./dist/win32-x64/deslop.exe check test/fixtures/ts-cycles-project)
           CYCLES=$?
-          ./dist/win32-x64/deslop.exe check test/fixtures/ts-project-1
-          CLEAN=$?
+          PROJ_OUT=$(./dist/win32-x64/deslop.exe check test/fixtures/ts-project-1)
+          PROJ=$?
           set -e
-          echo "violating fixture exit: $CYCLES (want 1), clean fixture exit: $CLEAN (want 0)"
-          [ "$CYCLES" -eq 1 ] && [ "$CLEAN" -eq 0 ]
+          echo "$CYCLES_OUT"
+          echo "$PROJ_OUT"
+          echo "cycles exit: $CYCLES (want 1), project-1 exit: $PROJ (want 1)"
+          echo "$CYCLES_OUT" | grep -q "Found 1 problem"
+          echo "$PROJ_OUT" | grep -q "Found 32 problems"
+          [ "$CYCLES" -eq 1 ] && [ "$PROJ" -eq 1 ]
 
       - name: Functional - CRLF sources parse identically
         shell: bash
