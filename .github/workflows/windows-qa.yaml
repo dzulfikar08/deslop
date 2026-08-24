@@ -74,6 +74,7 @@ jobs:
 
       # deslop exits 1 on this fixture, so each invocation needs `|| true` to
       # survive `set -e -o pipefail`; the comparison below is the actual gate.
+      # The summary line's duration is normalized away: timings vary per run.
       - name: Functional - CRLF sources parse identically
         shell: bash
         run: |
@@ -81,8 +82,8 @@ jobs:
           find test/fixtures/crlf-check -type f \( -name '*.ts' -o -name '*.json' \) -exec sed -i 's/$/\r/' {} +
           ./dist/win32-x64/deslop.exe check test/fixtures/ts-cycles-project > lf.raw 2>&1 || true
           ./dist/win32-x64/deslop.exe check test/fixtures/crlf-check      > crlf.raw 2>&1 || true
-          sed 's|ts-cycles-project|FIXTURE|g' lf.raw > lf.out
-          sed 's|crlf-check|FIXTURE|g' crlf.raw > crlf.out
+          sed -e 's|ts-cycles-project|FIXTURE|g' -e 's/in [0-9][0-9]*ms/in Xms/' lf.raw > lf.out
+          sed -e 's|crlf-check|FIXTURE|g' -e 's/in [0-9][0-9]*ms/in Xms/' crlf.raw > crlf.out
           diff lf.out crlf.out && echo "CRLF output identical"
 
       - uses: actions/upload-artifact@v7
